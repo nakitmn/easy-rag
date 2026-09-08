@@ -1,0 +1,16 @@
+# RAG tool dependencies (Python 3.13, llama-index 0.14.x).
+# Перечислены только прямые импорты; транзитивные (pydantic, openai, httpx,
+# numpy, llama-index-readers-file и т.п.) тянутся автоматически. Полный pinned
+# набор — `pip freeze` в .venv.
+
+llama-index-core==0.14.23
+llama-index-llms-openai-like==0.7.2
+llama-index-embeddings-huggingface==0.8.0
+tree-sitter==0.26.0
+tree-sitter-c-sharp==0.23.5
+python-dotenv==1.2.2
+
+# Будущие языки — раскомментировать при добавлении в SUPPORTED_LANGUAGES:
+# tree-sitter-kotlin
+# tree-sitter-java
+# tree-sitter-javascript
