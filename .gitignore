@@ -1,0 +1,24 @@
+# Claude Code local files
+.claude/settings.local.json
+.claude/agent-memory-local/
+
+# Mac OS
+.DS_Store
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# AST chunking output (generated)
+ast_chunks.jsonl
+ast_chunks_offline.jsonl
+
+# Vector index (generated, ~large)
+RAG/ast/data/vector_index/
+
+# Environment files (never commit secrets)
+.env
+.env.*
+!.env.example
