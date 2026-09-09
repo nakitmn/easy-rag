@@ -37,7 +37,7 @@ CodeSplitter (extractors общие). Сейчас расширение одно
 ## Компоненты
 
 ### `config.py` (единственная точка конфигурации, с 2026-09-07)
-Все tunable-параметры системы живут в корневом `.env` workspace (шаблон —
+Все tunable-параметры системы живут в корневом `.env` репо (шаблон —
 коммитимый `.env.example`); `config.py` — единственный модуль, который читает
 и валидирует env. Дефолтов tunable-параметров в коде нет.
 - Группы-акцессоры → frozen-датаклассы: `paths()` / `chunking()` / `embed()` /
@@ -48,10 +48,12 @@ CodeSplitter (extractors общие). Сейчас расширение одно
   + путь к `.env`). Пустая строка = отсутствует; единственное исключение —
   `RAG_MAX_FILES` (пусто = без лимита). Парсинг строгий (int ≥ min, float
   isfinite/>порог) — мусорные значения больше не игнорируются молча.
-- При импорте: `WORKSPACE_ROOT = parents[3]`, guard «есть ли .git» (ловит
-  mis-root), `load_dotenv(корневой .env, override=False)` — переменные процесса
+- При импорте: `WORKSPACE_ROOT` — первый каталог вверх от config.py с `.git`
+  (корень репо; переживает изменение вложенности — фикс-глубина `parents[3]`
+  сломалась при миграции в отдельный репо), guard «не внутри git-репо»,
+  `load_dotenv(корневой .env, override=False)` — переменные процесса
   приоритетнее .env. Загрузка `scripts/.env` и legacy `GLM_*` удалены.
-- `resolve_path()` — относительные пути от workspace root.
+- `resolve_path()` — относительные пути от корня репо.
 - `python config.py` — самопроверка всех групп (ключи маскируются), exit 1 при
   провале. Импортирует только stdlib+dotenv (нет циклов с остальными модулями).
 
@@ -94,7 +96,9 @@ CodeSplitter (extractors общие). Сейчас расширение одно
   batch 16); device: `RAG_EMBED_DEVICE=auto` → авторедетект mps/cpu.
 - `_normalize_documents()` — стабильные `doc.id_ = sha256("rag-doc:<rel_path>")`,
   `file_path` → repo-relative (иначе абсолютные пути попадают в doc.hash),
-  маркер `metadata["rag_profile"] = "enrich|plain:<embed_model>"`.
+  выбрасывание `creation_date`/`last_modified_date` (mtime дрейфует при
+  checkout/переносе корпуса — иначе docstore-дедуп видит «изменения» во всех
+  файлах), маркер `metadata["rag_profile"] = "enrich|plain:<embed_model>"`.
 - `HeaderMetadataTransform(TransformComponent)` — заголовки `// File: …` ПОСЛЕ
   extractors и ДО embedding + `excluded_embed_metadata_keys` (в эмбеддинг идут
   `file_path` + `section_summary` + `excerpt_keywords` + код с заголовком; не
@@ -155,7 +159,7 @@ CodeSplitter (extractors общие). Сейчас расширение одно
 | ключ | источник | когда |
 |------|----------|-------|
 | `file_path`, `file_name` | SimpleDirectoryReader / CodeSplitter | всегда (`file_path` нормализован к repo-relative) |
-| `file_size`, `creation_date`, `last_modified_date` | SimpleDirectoryReader | всегда (в эмбеддинг не идут) |
+| `file_size` | SimpleDirectoryReader | всегда (в эмбеддинг не идёт); `creation_date`/`last_modified_date` выбрасываются нормализацией шага 2 (с 2026-09-08 не входят в doc-hash) |
 | `section_summary` | SummaryExtractor | только при `enrich=True` |
 | `excerpt_keywords` | KeywordExtractor | только при `enrich=True` |
 | `rag_profile` | build_index.py | шаг 2; `"enrich\|plain:<embed_model>"` — маркер профиля индексации |
@@ -165,7 +169,7 @@ CodeSplitter (extractors общие). Сейчас расширение одно
 ## Storage шага 2
 
 ```
-RAG/ast/data/vector_index/        ← persist-директория (runtime → .gitignore)
+ast/data/vector_index/        ← persist-директория (runtime → .gitignore)
   docstore.json                   ← документы + чанки (тексты для ретривера)
   index_store.json                ← index_struct (VectorStoreIndex)
   default__vector_store.json      ← векторы (SimpleVectorStore, именаовано по коллекции)
@@ -193,7 +197,7 @@ RAG/ast/data/vector_index/        ← persist-директория (runtime → 
 
 ## Зависимости
 
-Прямые (см. `RAG/requirements.txt`): `llama-index-core`, `llama-index-llms-openai-like`,
+Прямые (см. `requirements.txt`): `llama-index-core`, `llama-index-llms-openai-like`,
 `llama-index-embeddings-huggingface` (+ транзитивно torch/sentence-transformers),
 `tree-sitter`, `tree-sitter-c-sharp`, `python-dotenv`. Остальные (pydantic, openai,
 httpx, numpy) — транзитивные.

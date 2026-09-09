@@ -4,14 +4,14 @@
 
 ```bash
 # из корня репо, в существующий .venv
-.venv/bin/pip install -r RAG/requirements.txt
+.venv/bin/pip install -r requirements.txt
 ```
 
 ## Конфигурация: единая точка — корневой `.env` (2026-09-07)
 
-Вся конфигурация RAG-тула — переменные корневого `.env` workspace (шаблон —
+Вся конфигурация RAG-тула — переменные корневого `.env` репо RAG (шаблон —
 коммитимый `.env.example`). Читает и валидирует их **только**
-`RAG/ast/scripts/config.py`; **дефолтов tunable-параметров в коде нет**.
+`ast/scripts/config.py`; **дефолтов tunable-параметров в коде нет**.
 
 - Группы-акцессоры (frozen-датаклассы): `config.paths()` / `config.chunking()` /
   `config.embed()` / `config.retrieval()` / `config.enrichment_llm()` /
@@ -23,11 +23,11 @@
   легально (= без лимита).
 - Приоритет: переменные процесса > `.env` (`load_dotenv(override=False)`, грузит
   только корневой `.env`; загрузка `scripts/.env` и legacy `GLM_*` **удалены**).
-- Относительные пути (`RAG_CODE_PATH` и др.) резолвятся от корня workspace.
+- Относительные пути (`RAG_CODE_PATH` и др.) резолвятся от корня репо RAG.
 - Самопроверка без сети (ключи маскируются):
 
 ```bash
-.venv/bin/python RAG/ast/scripts/config.py
+.venv/bin/python ast/scripts/config.py
 ```
 
 ### Полная таблица переменных (все обязательны, кроме RAG_MAX_FILES)
@@ -45,9 +45,9 @@
 | `RAG_QUERY_API_KEY` | *(секрет)* | ключ query |
 | `RAG_QUERY_TEMPERATURE` | `0.1` | температура query-LLM |
 | `RAG_QUERY_CONTEXT_WINDOW` | `128000` | контекстное окно query-LLM |
-| `RAG_CODE_PATH` | `src/Launcher/Assets/Scripts` | папка с исходниками |
-| `RAG_OUTPUT_PATH` | `RAG/ast/data/ast_chunks.jsonl` | выходной JSONL (шаг 1) |
-| `RAG_INDEX_DIR` | `RAG/ast/data/vector_index` | каталог векторного индекса (шаг 2) |
+| `RAG_CODE_PATH` | `../launcher/src/Launcher/Assets/Scripts` | папка с исходниками |
+| `RAG_OUTPUT_PATH` | `ast/data/ast_chunks.jsonl` | выходной JSONL (шаг 1) |
+| `RAG_INDEX_DIR` | `ast/data/vector_index` | каталог векторного индекса (шаг 2) |
 | `RAG_NUM_WORKERS` | `4` | конкурентность extractors |
 | `RAG_MAX_FILES` | *(пусто)* | лимит файлов; пусто = без лимита |
 | `RAG_CHUNK_MAX_CHARS` | `400000` | whole-file чанкинг (файл ≤10K строк = 1 чанк) |
@@ -110,7 +110,7 @@ per-file: битые файлы попадают в `files_failed` (сводка
 | флаг | default | назначение |
 |------|---------|------------|
 | `question` / `-q` | — | вопрос |
-| `--top-k` | `$RAG_TOP_K` (6) | сколько чанков доставать |
+| `--top-k` | `$RAG_TOP_K` (20) | сколько чанков доставать |
 | `--index-dir` | `$RAG_INDEX_DIR` | каталог индекса |
 | `--no-llm` | выкл | retrieval-дебаг: чанки + score, без LLM (не требует `RAG_QUERY_*`) |
 
@@ -119,20 +119,20 @@ per-file: битые файлы попадают в `files_failed` (сводка
 ### Проверить конфигурацию (без сети)
 
 ```bash
-.venv/bin/python RAG/ast/scripts/config.py
+.venv/bin/python ast/scripts/config.py
 ```
 
 ### Построить индекс (оффлайн, без LLM — быстро)
 
 ```bash
-.venv/bin/python RAG/ast/scripts/build_index.py \
-  --path src/Launcher/Assets/Scripts/Chat --no-enrich
+.venv/bin/python ast/scripts/build_index.py \
+  --path ../launcher/src/Launcher/Assets/Scripts/Chat --no-enrich
 ```
 
 ### Построить enriched-индекс
 
 ```bash
-.venv/bin/python RAG/ast/scripts/build_index.py --path src/Launcher/Assets/Scripts/Chat
+.venv/bin/python ast/scripts/build_index.py --path ../launcher/src/Launcher/Assets/Scripts/Chat
 # пересоздать с нуля: … --reset
 # синхронизировать с удалёнными файлами: … --prune
 ```
@@ -144,15 +144,15 @@ per-file: битые файлы попадают в `files_failed` (сводка
 ### Запрос по коду (retrieval + LLM-синтез)
 
 ```bash
-.venv/bin/python RAG/ast/scripts/query.py "Где регистрируются сервисы чата в VContainer?"
-.venv/bin/python RAG/ast/scripts/query.py "как отправить сообщение" --no-llm --top-k 5
+.venv/bin/python ast/scripts/query.py "Где регистрируются сервисы чата в VContainer?"
+.venv/bin/python ast/scripts/query.py "как отправить сообщение" --no-llm --top-k 5
 ```
 
 ### Тест нарезки шага 1 (оффлайн, быстро и бесплатно)
 
 ```bash
-.venv/bin/python RAG/ast/scripts/ast_llamaindex.py \
-  --path src/Launcher/Assets/Scripts/Chat --no-enrich
+.venv/bin/python ast/scripts/ast_llamaindex.py \
+  --path ../launcher/src/Launcher/Assets/Scripts/Chat --no-enrich
 ```
 Проверено: 48 файлов → 48 чанков (whole-file, `RAG_CHUNK_MAX_CHARS=400000`).
 `metadata` = file_path/file_name/…, **без** section_summary/excerpt_keywords
@@ -161,37 +161,38 @@ per-file: битые файлы попадают в `files_failed` (сводка
 ### Смоук LLM-домена (реальный ping)
 
 ```bash
-.venv/bin/python RAG/ast/scripts/llm_provider.py --domain enrichment
-.venv/bin/python RAG/ast/scripts/llm_provider.py --domain query
+.venv/bin/python ast/scripts/llm_provider.py --domain enrichment
+.venv/bin/python ast/scripts/llm_provider.py --domain query
 ```
 
 ### Дев-прогон с лимитом файлов
 
 ```bash
-.venv/bin/python RAG/ast/scripts/ast_llamaindex.py \
-  --path src/Launcher/Assets/Scripts/Chat --max-files 5
+.venv/bin/python ast/scripts/ast_llamaindex.py \
+  --path ../launcher/src/Launcher/Assets/Scripts/Chat --max-files 5
 ```
 
 ### Программный вызов (из другого скрипта)
 
 ```python
-import sys; sys.path.insert(0, "RAG/ast/scripts")
+import sys; sys.path.insert(0, "ast/scripts")
 from ast_llamaindex import run, save_chunks
 
-nodes = run(code_path="src/Launcher/Assets/Scripts/Chat", enrich=False)  # оффлайн
+nodes = run(code_path="../launcher/src/Launcher/Assets/Scripts/Chat", enrich=False)  # оффлайн
 # nodes = run(enrich=True)  # полный (нужен RAG_ENRICHMENT_* в .env)
 save_chunks(nodes, output_path="out.jsonl")
 ```
 
 ## Где результат
 
-- `RAG/ast/data/ast_chunks.jsonl` — JSONL шага 1 (`{id, text, metadata}` на строку),
+- `ast/data/ast_chunks.jsonl` — JSONL шага 1 (`{id, text, metadata}` на строку),
   дебаг-артефакт.
-- `RAG/ast/data/vector_index/` — векторный индекс шага 2 (`docstore.json`,
+- `ast/data/vector_index/` — векторный индекс шага 2 (`docstore.json`,
   `index_store.json`, `default__vector_store.json`). **Runtime-артефакт**
   (regenerируется), в `.gitignore`.
 
 ## Правило workspace
 
-Работаем только в текущем orca-workspace (ветка RAG) и его локальном `.venv`;
-оригинальный чекаут `~/Documents/Sotbifay/Projects/launcher` не трогаем.
+Работаем в отдельном репо RAG и его локальном `.venv`; репозиторий
+`~/Documents/Sotbifay/Projects/launcher` — источник кода для индексации
+(читаем, не меняем).

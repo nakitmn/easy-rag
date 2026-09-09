@@ -10,8 +10,8 @@
 - Контекстные заголовки в тексте чанка.
 - CLI (`--path/--output/--no-enrich/--max-files`) + env-override.
 - Реестр языков `SUPPORTED_LANGUAGES` (сейчас .cs; kt/java/js закомментированы).
-- `requirements.txt`, доменная структура `RAG/ast/`, `RAG/repomix/`.
-- Локальный `.venv` в корне ворктри (Python 3.13).
+- `requirements.txt`, доменная структура `ast/`, `repomix/`.
+- Локальный `.venv` в корне репо (Python 3.13).
 
 ## Нарезка + enrichment: финальная конфигурация (верифицировано 2026-09-04)
 
@@ -60,7 +60,7 @@ Studio):
 Что сделано (`build_index.py` + `query.py`, см. architecture.md):
 - embedding: локальная `BAAI/bge-m3` (mps, max_length 8192, dim 1024, ~2.3 GB
   в HF-кэше) — мультиязычная RU↔EN (RU-запрос ↔ EN-summary работает).
-- vector store: `SimpleVectorStore`, persist в `RAG/ast/data/vector_index/`.
+- vector store: `SimpleVectorStore`, persist в `ast/data/vector_index/`.
 - Эмбеддится summary + keywords + file_path + код с заголовком (не голый код).
 - LLM по доменам: `enrichment` = LM Studio qwen2.5-7b-instruct (legacy
   `GLM_*` работает), `query` = GLM-4.7 z.ai (`RAG_QUERY_API_KEY`).
@@ -184,9 +184,9 @@ summary дешевле и по LLM-токенам.
 Из кода убраны все дефолты tunable-параметров и вся fallback-логика; единственная
 точка конфигурации — корневой `.env` workspace (+ коммитимый шаблон
 `.env.example`; в `.gitignore` добавлен `!.env.example`). Чтение/валидация env —
-только новый `RAG/ast/scripts/config.py` (6 групп-акцессоров, frozen-датаклассы,
+только новый `ast/scripts/config.py` (6 групп-акцессоров, frozen-датаклассы,
 накопление ошибок по группе, контекстная валидация, самопроверка
-`python RAG/ast/scripts/config.py`).
+`python ast/scripts/config.py`).
 
 Что изменилось:
 - llm_provider: удалены DOMAINS-дефолты (qwen/LM Studio, glm-4.7), legacy
@@ -300,6 +300,40 @@ Sanity-retrieval на доменах вне Chat (top-5, `--no-llm`):
 Система в рабочем состоянии: `query.py` готов к использованию. Пользователь
 поднял `RAG_TOP_K` 6→20 (шире выдача на полном корпусе).
 
+## Миграция в отдельный репо (2026-09-08)
+
+Проект вынесен из orca-worktree лаунчера (`/Users/admin/orca/workspaces/launcher`,
+ветка RAG) в отдельный репо `github.com/nakitmn/RAG`; контент «опустился на
+уровень» (было `<workspace>/RAG/ast/scripts/`, стало `<repo>/ast/scripts/`).
+
+Что починено:
+- `config.py`: `WORKSPACE_ROOT` ищется вверх до каталога с `.git` (было
+  `parents[3]` — фикс-глубина, сломалась при смене вложенности; guard `.git`
+  остаётся как понятная ошибка «не внутри репо»).
+- `.venv` релоцирован текстовой заменой префикса в `bin/*` + `pyvenv.cfg`
+  (30 файлов; базовый homebrew-python 3.13.7 не менялся, пакеты целы —
+  переустановка не понадобилась).
+- **Даты больше не входят в doc-hash**: `_normalize_documents` выбрасывает
+  `creation_date`/`last_modified_date`. До фикса любой git checkout/перенос
+  корпуса (mtime меняется у всех файлов) ломал docstore-дедуп → полная
+  переиндексация с LLM-re-enrichment. Побочный факт отладки:
+  `get_all_document_hashes()` llama-index возвращает перевёрнутый маппинг
+  `{doc_hash: doc_id}`.
+- `.gitignore` (`ast/data/vector_index/`, `repomix/output.xml`, `.DS_Store`
+  убран из трекинга), `.env.example` (пути от корня репо; `RAG_CODE_PATH=
+  ../launcher/src/Launcher/Assets/Scripts`; `RAG_TOP_K=20`),
+  `repomix-pack.sh` (`PROJECT_ROOT` → `../launcher` + override
+  `REPOMIX_PROJECT_ROOT`), CLAUDE.md, `.memory/*` — под плоскую раскладку.
+- Индекс: enriched-данные скопированы из старого worktree, затем перестроены
+  новым полным прогоном `--reset` (решение пользователя — вместо миграции
+  doc-хешей). Результат (2026-09-09): корпус вырос до **1753 файлов** (было
+  1634 — ветка dev ушла вперёд) → 1753 чанков → 1753 векторов (docstore 3506),
+  t ≈ 2.3 ч (36 батчей). Батч 22 поймал серию connection-ошибок z.ai —
+  per-file-деградация отработала как задумано: 7 файлов Sport/* ушли в failed,
+  ретрай повторным прогоном добрал их за 57 с (7 processed / 1746 skipped),
+  контрольный no-op — 0 processed / 1753 skipped. Живой query (LLM-синтез) и
+  оффлайн-смоук `ast_llamaindex --no-enrich --max-files 5` — ок.
+
 ## Открыто / следующие шаги
 
 - **Использование и улучшение по запросу**: ретривер/синтез подстраиваем по
@@ -319,10 +353,9 @@ Sanity-retrieval на доменах вне Chat (top-5, `--no-llm`):
 
 - `ast_chunks.jsonl` — дебаг-артефакт шага 1; шаг 2 кладёт чанки прямо в
   vector store (+ docstore для текстов).
-- git: staged renames `src/Launcher → RAG/scripts` (старый перенос) +
-  untracked `RAG/ast/`; при коммите git разрулит сам.
 - Whole-file чанки: эмбеддинг bge-m3 (8K токенов) покрывает крупнейший файл
   (~21 КБ ≈ 5–6K токенов); файлы >~30K символов будут обрезаться на
   эмбеддинге — пока таких нет.
-- Вся работа — только в orca-workspace (ветка RAG) и его `.venv`; оригинальный
-  чекаут не трогаем. Не коммитим без явного запроса пользователя.
+- Вся работа — в отдельном репо RAG и его `.venv`; репозиторий launcher —
+  источник кода для индексации (читаем, не меняем). Не коммитим без явного
+  запроса пользователя.

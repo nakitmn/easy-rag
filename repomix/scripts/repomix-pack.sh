@@ -1,19 +1,24 @@
 #!/usr/bin/env bash
-# Упаковывает указанную папку в RAG/repomix/output.xml через repomix.
-# repomix запускается из RAG/repomix — оттуда же автоматически читается repomix.config.json.
+# Упаковывает указанную папку в repomix/output.xml через repomix.
+# repomix запускается из repomix/ — оттуда же автоматически читается repomix.config.json.
 #
 # Использование:
 #   repomix-pack.sh [путь_к_папке] [доп. аргументы repomix...]
-# Если папка не указана — пакуется корень проекта.
+# Если папка не указана — пакуется корень проекта (REPOMIX_PROJECT_ROOT или ../launcher).
 # Пример:
-#   repomix-pack.sh src/Launcher/Assets/Scripts
-#   repomix-pack.sh src/Launcher/Assets/Scripts --compress
+#   repomix-pack.sh ../launcher/src/Launcher/Assets/Scripts
+#   repomix-pack.sh ../launcher/src/Launcher/Assets/Scripts --compress
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPOMIX_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"          # RAG/repomix
-PROJECT_ROOT="$(cd "$REPOMIX_DIR/../.." && pwd)"      # корень проекта (launcher)
+# Корень проекта (launcher) — репозиторий-сосед; переопределяется REPOMIX_PROJECT_ROOT.
+PROJECT_ROOT="${REPOMIX_PROJECT_ROOT:-$(cd "$REPOMIX_DIR/../launcher" 2>/dev/null && pwd)}"
+if [[ -z "$PROJECT_ROOT" ]]; then
+    echo "Ошибка: ../launcher не найден. Задай REPOMIX_PROJECT_ROOT=<репо проекта>" >&2
+    exit 1
+fi
 
 usage() {
     cat <<EOF
@@ -21,7 +26,8 @@ usage() {
 
 Упаковывает папку в $REPOMIX_DIR/output.xml
 (repomix запускается из $REPOMIX_DIR — конфиг берётся оттуда же).
-Если папка не указана — пакуется корень проекта ($PROJECT_ROOT).
+Если папка не указана — пакуется корень проекта ($PROJECT_ROOT;
+REPOMIX_PROJECT_ROOT или ../launcher по умолчанию).
 Доп. аргументы передаются repomix как есть (например --compress, --style markdown).
 EOF
 }

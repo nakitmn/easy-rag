@@ -11,7 +11,7 @@ hash документа: смена режима (enrich↔plain) или embeddi
 всё, а не смешивает несовместимые векторы.
 
 Индекс: SimpleVectorStore персистится через StorageContext в каталог
-``RAG_INDEX_DIR`` из .env (по умолчанию ``RAG/ast/data/vector_index/``:
+``RAG_INDEX_DIR`` из .env (по умолчанию ``ast/data/vector_index/``:
 docstore.json, index_store.json, default__vector_store.json).
 
 Дефолт docstore_strategy=UPSERTS: повторные прогоны только обновляют, ничего
@@ -153,6 +153,10 @@ def _normalize_documents(
         rel = fp.resolve().relative_to(root).as_posix()
         d.metadata["file_path"] = rel
         d.metadata["rag_profile"] = profile
+        # Даты SimpleDirectoryReader входят в Document.hash: без выбрасывания
+        # любой git checkout/перенос корпуса меняет mtime и ломает docstore-дедуп.
+        d.metadata.pop("creation_date", None)
+        d.metadata.pop("last_modified_date", None)
         d.id_ = _stable_doc_id(rel)
 
 
@@ -435,18 +439,18 @@ if __name__ == "__main__":
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent("""\
-            Примеры:
+            Примеры (пути --path — относительно текущего каталога):
               # оффлайн (без LLM — быстро, для смоука):
-              python build_index.py --path src/Launcher/Assets/Scripts/Chat --no-enrich
+              python build_index.py --path ../launcher/src/Launcher/Assets/Scripts/Chat --no-enrich
 
               # полный прогон с enrichment (ключи в корневом .env, см. config.py):
-              python build_index.py --path src/Launcher/Assets/Scripts/Chat
+              python build_index.py --path ../launcher/src/Launcher/Assets/Scripts/Chat
 
               # пересоздать индекс с нуля:
-              python build_index.py --path src/Launcher/Assets/Scripts/Chat --reset
+              python build_index.py --path ../launcher/src/Launcher/Assets/Scripts/Chat --reset
 
               # удалить из индекса документы, которых нет в прогоне:
-              python build_index.py --path src/Launcher/Assets/Scripts/Chat --prune
+              python build_index.py --path ../launcher/src/Launcher/Assets/Scripts/Chat --prune
         """),
     )
     parser.add_argument("--path", type=Path, default=pc.code_path,

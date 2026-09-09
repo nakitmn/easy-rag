@@ -16,9 +16,15 @@ ast_chunks.jsonl
 ast_chunks_offline.jsonl
 
 # Vector index (generated, ~large)
-RAG/ast/data/vector_index/
+ast/data/vector_index/
+
+# Repomix output (generated)
+repomix/output.xml
 
 # Environment files (never commit secrets)
 .env
 .env.*
 !.env.example
+
+.serena
+.idea

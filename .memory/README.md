@@ -10,27 +10,33 @@ Python, llama-index 0.14.x. Вне Unity-приложения (отдельны�
 - `usage.md` — установка, env-переменные, CLI-аргументы, примеры запуска
 - `roadmap.md` — что готово, что осталось (шаг 2: embedding + векторная БД), риски
 
-## Структура `RAG/`
+## Структура репо (отдельный репо github.com/nakitmn/RAG, плоская раскладка)
 
 ```
-RAG/
-  ast/                       ← домен AST-чанкинга
-    scripts/
-      config.py              ← ЕДИНСТВЕННАЯ точка конфигурации: чтение/валидация корневого .env
-      ast_llamaindex.py      ← шаг 1: AST-нарезка + enrichment (только импортируется шагом 2)
-      build_index.py         ← шаг 2: ингест → векторный индекс (инкрементально)
-      query.py               ← шаг 2: вопрос → top-k чанков → ответ LLM (query-домен)
-      llm_provider.py        ← фабрика LLM по доменам (enrichment/query); конфиг — из config.py
-    data/
-      ast_chunks.jsonl       ← дебаг-артефакт шага 1 (runtime)
-      vector_index/          ← персистентный векторный индекс (runtime, gitignored)
-  repomix/                   ← домен repomix (упаковка репо в XML; альтернативный источник)
-  requirements.txt
-  .memory/                   ← этот каталог
+ast/                       ← домен AST-чанкинга
+  scripts/
+    config.py              ← ЕДИНСТВЕННАЯ точка конфигурации: чтение/валидация корневого .env
+    ast_llamaindex.py      ← шаг 1: AST-нарезка + enrichment (только импортируется шагом 2)
+    build_index.py         ← шаг 2: ингест → векторный индекс (инкрементально)
+    query.py               ← шаг 2: вопрос → top-k чанков → ответ LLM (query-домен)
+    llm_provider.py        ← фабрика LLM по доменам (enrichment/query); конфиг — из config.py
+  data/
+    ast_chunks.jsonl       ← дебаг-артефакт шага 1 (runtime)
+    vector_index/          ← персистентный векторный индекс (runtime, gitignored)
+repomix/                   ← домен repomix (упаковка репо в XML; альтернативный источник)
+requirements.txt
+.memory/                   ← этот каталог
 ```
 
-## Состояние (на 2026-09-08)
+## Состояние (на 2026-09-09)
 
+- **МИГРАЦИЯ В ОТДЕЛЬНЫЙ РЕПО + ПЕРЕСБОРКА ИНДЕКСА** (2026-09-08/09): система
+  в рабочем состоянии в github.com/nakitmn/RAG (плоская раскладка
+  `ast/scripts/…`); `config.py` ищет корень репо по `.git` вверх, `.venv`
+  релоцирован заменой префикса, даты исключены из doc-hash. Индекс перестроен
+  полным прогоном `--reset`: **1753 файла → 1753 чанка → 1753 вектора**
+  (enriched, 0 потерь; контрольный no-op — 0 processed). Детали — roadmap.md,
+  секция «Миграция в отдельный репо».
 - **ПОЛНЫЙ ПРОГОН КОРПУСА СДЕЛАН — система в рабочем состоянии** (2026-09-08):
   1634 файла → 1634 чанка → 1634 вектора (enriched, 0 потерь), прерывание на
   батче 16 пережито персистом (перезапуск продолжил с места остановки);
@@ -48,10 +54,10 @@ RAG/
   и enriched-прогоном Chat (48/48, retrieval = эталон). Полный прогон корпуса
   разблокирован. Детали — roadmap.md.
 - **Конфигурация консолидирована в корневом `.env`** (2026-09-07): единственный
-  модуль чтения/валидации env — `RAG/ast/scripts/config.py` (6 групп,
+  модуль чтения/валидации env — `ast/scripts/config.py` (6 групп,
   контекстная валидация); дефолтов tunable-параметров в коде нет, legacy
   `GLM_*`/scripts-.env удалены; коммитится шаблон `.env.example`. Самопроверка:
-  `.venv/bin/python RAG/ast/scripts/config.py`. Поведение не менялось
+  `.venv/bin/python ast/scripts/config.py`. Поведение не менялось
   (no-op-прогон — 0 processed; retrieval байт-в-байт). Детали — roadmap.md.
 - **Оба LLM-домена переведены на z.ai `glm-5.3-flash`** (2026-09-07): env
   `RAG_ENRICHMENT_*` и `RAG_QUERY_MODEL` в корневом `.env` (coding-эндпоинт,
@@ -82,7 +88,7 @@ RAG/
   расхождений «тело ↔ file_size» (каждый чанк — целый файл). Обе проблемы
   шага 1 (сироты на файлах >6 КБ, CJK-дрейф) закрыты.
 - Окружение: `.venv` поднят в корне ворктри (Python 3.13,
-  `pip install -r RAG/requirements.txt`).
+  `pip install -r requirements.txt`).
 - **Шаг 2 (embedding + векторная БД + query CLI) реализован и проверен на
   Chat** (2026-09-04): `build_index.py` (инкрементальный ингест, bge-m3 mps,
   SimpleVectorStore) + `query.py` (retrieval + LLM-синтез). LLM разделены по
@@ -97,6 +103,7 @@ RAG/
 
 ## Правило workspace
 
-**Вся работа — только в текущем workspace** (orca worktree, ветка RAG) и его
-локальном `.venv`. Оригинальный чекаут `/Users/admin/Documents/Sotbifay/Projects/launcher`
-не трогаем (включая чтение его `.env`).
+**Вся работа — в отдельном репо RAG** (этот каталог) и его локальном `.venv`.
+Репозиторий launcher (`/Users/admin/Documents/Sotbifay/Projects/launcher`) —
+источник кода для индексации: читаем, не меняем. Старый orca-worktree
+`/Users/admin/orca/workspaces/launcher/RAG` оставлен как бэкап данных — не трогаем.

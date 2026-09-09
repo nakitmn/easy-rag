@@ -1,6 +1,6 @@
 """Единственная точка конфигурации RAG-тула: чтение и валидация env-переменных.
 
-Все tunable-параметры задаются корневым ``.env`` workspace (или переменными
+Все tunable-параметры задаются корневым ``.env`` репозитория (или переменными
 процесса — они приоритетнее). Дефолтов в коде нет: отсутствующая или пустая
 переменная — ошибка конфигурации. Единственное исключение — ``RAG_MAX_FILES``,
 где пустое значение легально и означает «без лимита».
@@ -16,7 +16,7 @@ LLM-акцессоры и не требуют ключей.
     python config.py
 
 Относительные значения путей (``RAG_CODE_PATH`` и т.п.) резолвятся от
-``WORKSPACE_ROOT`` — корня workspace, где лежит ``.env``.
+``WORKSPACE_ROOT`` — корня репозитория RAG, где лежит ``.env``.
 """
 
 from __future__ import annotations
@@ -35,16 +35,17 @@ class ConfigError(RuntimeError):
     """Конфигурация неполна или некорректна (нет переменной / мусорное значение)."""
 
 
-WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
-ENV_FILE = WORKSPACE_ROOT / ".env"
-
-# config.py обязан лежать в <root>/RAG/ast/scripts/ — иначе parents[3] укажет
-# не на workspace root и относительные пути из .env разъедутся молча.
-if not (WORKSPACE_ROOT / ".git").exists():
+# Корень репо = первый каталог вверх от config.py, содержащий .git.
+WORKSPACE_ROOT = next(
+    (p for p in Path(__file__).resolve().parents if (p / ".git").exists()),
+    None,
+)
+if WORKSPACE_ROOT is None:
     raise ConfigError(
-        f"WORKSPACE_ROOT вычислен как {WORKSPACE_ROOT}, но .git там нет — "
-        "config.py должен лежать в <workspace-root>/RAG/ast/scripts/."
+        "Не найден корень репо (каталог с .git) вверх от config.py — "
+        "config.py должен лежать внутри git-репозитория RAG, где лежит .env."
     )
+ENV_FILE = WORKSPACE_ROOT / ".env"
 
 load_dotenv(ENV_FILE, override=False)
 
