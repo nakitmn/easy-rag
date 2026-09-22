@@ -4,16 +4,18 @@ Retrieval — SimpleVectorStore через ``load_index_from_storage``; эмбе
 запроса — та же модель, что индексировала (``RAG_EMBED_*`` в корневом .env).
 Синтез — LLM домена ``query`` (``RAG_QUERY_*``; см. ``config.py`` /
 ``llm_provider``). ``--no-llm`` — retrieval-дебаг без LLM (query-переменные
-не требуются).
+не требуются). Гард профиля: embed-модель индекса (``rag_meta.json``; у legacy
+индексов — из docstore) сверяется с ``RAG_EMBED_MODEL`` до загрузки модели.
 
 Примеры:
-    python query.py "Где настраивается внедрение зависимостей?"
-    python query.py "как отправить сообщение" --no-llm --top-k 5
+    python query.py --index-dir ~/.rag/myproject "Где настраивается внедрение зависимостей?"
+    python query.py --index-dir ~/.rag/myproject "как отправить сообщение" --no-llm --top-k 5
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -37,16 +39,55 @@ ANSWER_SYSTEM_PROMPT = (
 )
 
 
-def load_index(index_dir: Optional[Path] = None) -> VectorStoreIndex:
-    """Загрузить персистентный индекс (embed_model в Settings — до загрузки)."""
-    if index_dir is None:
-        index_dir = config.paths().index_dir
+def _find_rag_profile(value) -> Optional[str]:
+    if isinstance(value, dict):
+        if isinstance(value.get("rag_profile"), str):
+            return value["rag_profile"]
+        for v in value.values():
+            found = _find_rag_profile(v)
+            if found is not None:
+                return found
+    elif isinstance(value, list):
+        for v in value:
+            found = _find_rag_profile(v)
+            if found is not None:
+                return found
+    return None
+
+
+def _read_index_profile(index_dir: Path) -> Optional[str]:
+    """Профиль индекса: из rag_meta.json, у legacy — из docstore (rag_profile)."""
+    meta_path = index_dir / "rag_meta.json"
+    if meta_path.exists():
+        with meta_path.open("r", encoding="utf-8") as f:
+            return json.load(f).get("profile")
+    docstore_path = index_dir / "docstore.json"
+    if not docstore_path.exists():
+        return None
+    with docstore_path.open("r", encoding="utf-8") as f:
+        return _find_rag_profile(json.load(f))
+
+
+def load_index(index_dir: Path) -> VectorStoreIndex:
+    """Загрузить персистентный индекс (гард профиля — до загрузки модели)."""
     if not (index_dir / "index_store.json").exists():
         raise SystemExit(
             f"❌ Индекс не найден: {index_dir}\n"
-            "   Сначала построй его: python build_index.py --path <папка с .cs>"
+            "   Сначала построй его: python build_index.py --path <папка с .cs> "
+            "--index-dir <каталог индекса>"
         )
-    print(f"🧠 Embedding: {config.embed().model} (загрузка модели...)")
+    index_profile = _read_index_profile(index_dir)
+    expected_model = config.embed().model
+    if index_profile is not None and index_profile.split(":", 1)[-1] != expected_model:
+        raise SystemExit(
+            "❌ Embed-модель индекса не совпадает с текущей конфигурацией:\n"
+            f"   профиль индекса: {index_profile}\n"
+            f"   текущая модель:  {expected_model} (RAG_EMBED_MODEL)\n"
+            f"   Запусти запрос с RAG_EMBED_MODEL={index_profile.split(':', 1)[-1]} "
+            "или пересобери индекс этой моделью "
+            "(build_index.py --path <корень кода> --index-dir <каталог> --reset)."
+        )
+    print(f"🧠 Embedding: {expected_model} (загрузка модели...)")
     Settings.embed_model = build_embed_model()
     sc = StorageContext.from_defaults(persist_dir=str(index_dir))
     return load_index_from_storage(sc)
@@ -119,7 +160,6 @@ def print_debug(chunks: List[NodeWithScore]) -> None:
 def main() -> int:
     try:
         rc = config.retrieval()
-        pc = config.paths()
 
         parser = argparse.ArgumentParser(
             prog="query.py",
@@ -130,8 +170,8 @@ def main() -> int:
                             help="вопрос (альтернатива позиционному аргументу)")
         parser.add_argument("--top-k", type=int, default=rc.top_k,
                             help=f"сколько чанков доставать (default {rc.top_k})")
-        parser.add_argument("--index-dir", type=Path, default=pc.index_dir,
-                            help=f"каталог индекса (default {pc.index_dir})")
+        parser.add_argument("--index-dir", type=Path, required=True,
+                            help="каталог индекса (обязательный)")
         parser.add_argument("--no-llm", action="store_true",
                             help="только retrieval-дебаг: чанки + score, без LLM")
         args = parser.parse_args()

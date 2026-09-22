@@ -10,9 +10,11 @@
 hash документа: смена режима (enrich↔plain) или embedding-модели переиндексирует
 всё, а не смешивает несовместимые векторы.
 
-Индекс: SimpleVectorStore персистится через StorageContext в каталог
-``RAG_INDEX_DIR`` из .env (по умолчанию ``ast/data/vector_index/``:
-docstore.json, index_store.json, default__vector_store.json).
+Каталог индекса (``--index-dir``) принадлежит клиенту — дефолтов нет. Индекс:
+docstore.json, index_store.json, default__vector_store.json (+ стабы) и
+``rag_meta.json`` с корнем корпуса и профилем. Root-guard: повторный прогон
+с другим ``--path`` — ошибка без ``--switch-root``; смена профиля (enrich↔plain
+или embedding-модель) — предупреждение с подсказкой ``--reset``.
 
 Дефолт docstore_strategy=UPSERTS: повторные прогоны только обновляют, ничего
 не удаляют (частичный прогон по подпапке безопасен). ``--prune`` удаляет
@@ -34,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import shutil
 import sys
 import time
@@ -74,6 +77,28 @@ EXCLUDED_METADATA_KEYS = [
 # может подолгу жечь время на каждом файле подряд; стоп после N неудач
 # (прогресс уже персистнут, перезапуск продолжит с места остановки).
 _MAX_CONSECUTIVE_FILE_FAILURES = 10
+
+
+# --- rag_meta.json ---------------------------------------------------------------
+
+def _read_meta(index_dir: Path) -> Optional[dict]:
+    meta_path = index_dir / "rag_meta.json"
+    if not meta_path.exists():
+        return None
+    with meta_path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _write_meta(index_dir: Path, corpus_root: Path, profile: str) -> None:
+    meta = {
+        "schema_version": 1,
+        "corpus_root": str(corpus_root),
+        "profile": profile,
+    }
+    index_dir.mkdir(parents=True, exist_ok=True)
+    with (index_dir / "rag_meta.json").open("w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+        f.write("\n")
 
 
 # --- Embedding ----------------------------------------------------------------
@@ -209,28 +234,27 @@ def _vector_count(vector_store) -> int:
 # --- Главный вход ----------------------------------------------------------------
 
 def build_index(
-    code_path: Optional[Path] = None,
-    index_dir: Optional[Path] = None,
+    code_path: Path,
+    index_dir: Path,
     *,
     enrich: bool = True,
     max_files: Optional[int] = None,
     batch_size: Optional[int] = None,
     prune: bool = False,
     reset: bool = False,
+    switch_root: bool = False,
 ) -> Dict:
     """Построить/обновить векторный индекс по папке с исходниками.
 
-    ``code_path``/``index_dir``/``max_files``/``batch_size`` = None → из
-    конфига (``config.paths()`` / ``config.chunking()``).
+    ``max_files``/``batch_size`` = None → из конфига (``config.chunking()``).
+    Каталог индекса принадлежит клиенту; корень корпуса фиксируется в
+    ``rag_meta.json`` — повторный прогон с другим корнем без ``--switch-root``
+    падает root-guard'ом.
 
     Возвращает статистику: files_loaded/processed/skipped/failed,
     chunks_indexed, docstore_docs, vectors, тайминги.
     """
     ec = config.embed()
-    if code_path is None:
-        code_path = config.paths().code_path
-    if index_dir is None:
-        index_dir = config.paths().index_dir
     if max_files is None:
         max_files = config.chunking().max_files
     if batch_size is None:
@@ -238,10 +262,38 @@ def build_index(
     if batch_size < 1:
         raise ValueError(f"batch_size должен быть ≥ 1, получено {batch_size}")
 
+    profile = ("enrich" if enrich else "plain") + f":{ec.model}"
     persist_dir = Path(index_dir)
+    meta = _read_meta(persist_dir)
     if reset and persist_dir.exists():
         shutil.rmtree(persist_dir)
     persist_dir.mkdir(parents=True, exist_ok=True)
+
+    if meta:
+        saved_root = Path(meta.get("corpus_root", "")).resolve()
+        current_root = Path(code_path).resolve()
+        if saved_root != current_root:
+            if not switch_root:
+                raise SystemExit(
+                    "❌ Corpus root индекса не совпадает с --path:\n"
+                    f"   в индексе: {saved_root}\n"
+                    f"   передано:  {current_root}\n"
+                    "   Варианты: указать --path сохранённого корня; собрать "
+                    "отдельный индекс (--index-dir <новый каталог>); сменить "
+                    "корень осознанно — --switch-root (совет: добить смену "
+                    "прогоном с --prune — doc-id старых путей станут сиротами)."
+                )
+            print(
+                f"⚠️  Смена corpus root: {saved_root} → {current_root}. "
+                "Doc-id старых путей останутся в индексе сиротами — добей "
+                "смену прогоном с --prune."
+            )
+        elif meta.get("profile") != profile:
+            print(
+                f"⚠️  Профиль индекса {meta.get('profile')} ≠ текущий {profile}. "
+                "Неизменённые файлы не будут пересчитаны — для полной "
+                "пересборки запусти с --reset. Прогон продолжается."
+            )
 
     t0 = time.perf_counter()
     print(f"🧠 Embedding: {ec.model} (device={_resolve_embed_device()}, max_length={ec.max_length})")
@@ -391,6 +443,7 @@ def build_index(
     # Финальный безусловный персист: флашит --prune-удаления и удаления
     # упавших документов, когда все батчи оказались no-op (персист по условию).
     sc.persist(persist_dir=str(persist_dir))
+    _write_meta(persist_dir, Path(code_path).resolve(), profile)
 
     # Doc с 0 чанков (например, пустой файл) не виден в all_nodes — считаем
     # processed по смене hash-записи в docstore, а не по узлам.
@@ -428,7 +481,6 @@ def build_index(
 if __name__ == "__main__":
     import textwrap
 
-    pc = config.paths()
     cc = config.chunking()
 
     parser = argparse.ArgumentParser(
@@ -439,24 +491,24 @@ if __name__ == "__main__":
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent("""\
-            Примеры (пути --path — относительно текущего каталога):
+            Примеры (относительные пути — от текущего каталога):
               # оффлайн (без LLM — быстро, для смоука):
-              python build_index.py --path ./src --no-enrich
+              python build_index.py --path ./src --index-dir /tmp/idx --no-enrich
 
               # полный прогон с enrichment (ключи в корневом .env, см. config.py):
-              python build_index.py --path ./src
+              python build_index.py --path ./src --index-dir ~/.rag/myproject
 
               # пересоздать индекс с нуля:
-              python build_index.py --path ./src --reset
+              python build_index.py --path ./src --index-dir ~/.rag/myproject --reset
 
               # удалить из индекса документы, которых нет в прогоне:
-              python build_index.py --path ./src --prune
+              python build_index.py --path ./src --index-dir ~/.rag/myproject --prune
         """),
     )
-    parser.add_argument("--path", type=Path, default=pc.code_path,
-                        help=f"папка с исходниками (по умолчанию: {pc.code_path})")
-    parser.add_argument("--index-dir", type=Path, default=pc.index_dir,
-                        help=f"каталог индекса (по умолчанию: {pc.index_dir})")
+    parser.add_argument("--path", type=Path, required=True,
+                        help="папка с исходниками (обязательный)")
+    parser.add_argument("--index-dir", type=Path, required=True,
+                        help="каталог индекса (обязательный)")
     parser.add_argument("--no-enrich", action="store_true",
                         help="без LLM-enrichment (оффлайн)")
     parser.add_argument("--max-files", type=int, default=cc.max_files,
@@ -468,6 +520,8 @@ if __name__ == "__main__":
                         help="удалить из индекса документы, отсутствующие в текущем прогоне")
     parser.add_argument("--reset", action="store_true",
                         help="снести каталог индекса перед прогоном")
+    parser.add_argument("--switch-root", action="store_true",
+                        help="осознанно сменить corpus root существующего индекса")
     args = parser.parse_args()
 
     try:
@@ -479,6 +533,7 @@ if __name__ == "__main__":
             batch_size=args.batch_size,
             prune=args.prune,
             reset=args.reset,
+            switch_root=args.switch_root,
         )
     except config.ConfigError as e:
         sys.exit(str(e))

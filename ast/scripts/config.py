@@ -5,7 +5,7 @@
 переменная — ошибка конфигурации. Единственное исключение — ``RAG_MAX_FILES``,
 где пустое значение легально и означает «без лимита».
 
-Валидация контекстная: акцессор группы (``paths()`` / ``chunking()`` /
+Валидация контекстная: акцессор группы (``chunking()`` /
 ``embed()`` / ``retrieval()`` / ``enrichment_llm()`` / ``query_llm()``) читает
 env в момент вызова и падает одним ``ConfigError`` со списком всех проблем
 группы. Оффлайн-режимы (``--no-enrich``, ``--no-llm``) просто не вызывают
@@ -15,8 +15,8 @@ LLM-акцессоры и не требуют ключей.
 
     python config.py
 
-Относительные значения путей (``RAG_CODE_PATH`` и т.п.) резолвятся от
-``WORKSPACE_ROOT`` — корня репозитория RAG, где лежит ``.env``.
+Пути кода и индекса в конфиг не входят: они передаются аргументами
+CLI/API (``--path`` / ``--output`` / ``--index-dir``) при каждом вызове.
 """
 
 from __future__ import annotations
@@ -60,13 +60,6 @@ class LLMConfig:
     temperature: float
     context_window: int
     preflight_timeout_s: Optional[float] = None  # только enrichment-домен
-
-
-@dataclass(frozen=True)
-class PathsConfig:
-    code_path: Path
-    output_path: Path
-    index_dir: Path
 
 
 @dataclass(frozen=True)
@@ -147,14 +140,6 @@ def _float(
     return value
 
 
-def _path(name: str, problems: List[str]) -> Optional[Path]:
-    raw = _raw(name)
-    if raw is None:
-        problems.append(f"{name}: {_MISSING}")
-        return None
-    return resolve_path(raw)
-
-
 def _raise(title: str, problems: List[str]) -> None:
     if not ENV_FILE.exists():
         header = (
@@ -172,11 +157,6 @@ def _raise(title: str, problems: List[str]) -> None:
 
 
 # --- Утилиты ----------------------------------------------------------------------
-
-def resolve_path(raw: str) -> Path:
-    p = Path(raw)
-    return p if p.is_absolute() else WORKSPACE_ROOT / p
-
 
 def mask(secret: Optional[str]) -> str:
     return "****" + secret[-4:] if secret else "****"
@@ -212,18 +192,6 @@ def query_llm() -> LLMConfig:
     )
     if problems:
         _raise("LLM «query»", problems)
-    return cfg
-
-
-def paths() -> PathsConfig:
-    problems: List[str] = []
-    cfg = PathsConfig(
-        code_path=_path("RAG_CODE_PATH", problems),
-        output_path=_path("RAG_OUTPUT_PATH", problems),
-        index_dir=_path("RAG_INDEX_DIR", problems),
-    )
-    if problems:
-        _raise("пути", problems)
     return cfg
 
 
@@ -270,13 +238,24 @@ if __name__ == "__main__":
     groups = [
         ("LLM enrichment", enrichment_llm),
         ("LLM query", query_llm),
-        ("Пути", paths),
         ("Чанкинг", chunking),
         ("Embedding", embed),
         ("Retrieval", retrieval),
     ]
     print(f"Файл конфигурации: {ENV_FILE} "
           f"({'найден' if ENV_FILE.exists() else 'НЕ НАЙДЕН'})")
+
+    legacy_paths = [
+        n for n in ("RAG_CODE_PATH", "RAG_OUTPUT_PATH", "RAG_INDEX_DIR")
+        if _raw(n) is not None
+    ]
+    if legacy_paths:
+        print(
+            "⚠️ Устаревшие переменные путей в env (больше не используются): "
+            + ", ".join(legacy_paths)
+            + "\n   Пути кода и индекса передаются аргументами CLI "
+              "(--path/--output/--index-dir)."
+        )
 
     failed = False
     for title, accessor in groups:

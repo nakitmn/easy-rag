@@ -125,15 +125,15 @@ def _build_extractors(
 # --- Пайплайн ----------------------------------------------------------------
 
 def run(
-    code_path: Optional[Path] = None,
+    code_path: Path,
     llm: Optional[LLM] = None,
     enrich: bool = True,
     max_files: Optional[int] = None,
 ) -> List[BaseNode]:
     """Загрузить код, нарезать по AST и (опционально) обогатить описанием.
 
-    ``code_path``/``max_files`` = None → значение из конфига (``config.paths()``
-    / ``config.chunking()``). При ``enrich=True`` summary и keywords генерируются
+    ``max_files`` = None → значение из конфига (``config.chunking()``).
+    При ``enrich=True`` summary и keywords генерируются
     LLM-доменом enrichment прямо внутри ``pipeline.run()``. При
     ``enrich=False`` — только AST-чанкинг, без LLM-вызовов (LLM-переменные .env
     не требуются).
@@ -144,8 +144,6 @@ def run(
     чистым кодом, без заголовка.
     """
     cc = config.chunking()
-    if code_path is None:
-        code_path = config.paths().code_path
     if max_files is None:
         max_files = cc.max_files
     print(f"📂 Загрузка файлов из {code_path}...")
@@ -208,9 +206,7 @@ def _inject_context_headers(nodes: List[BaseNode]) -> None:
         index_by_file[fp] = i + 1
 
 
-def save_chunks(nodes: List[BaseNode], output_path: Optional[Path] = None) -> Path:
-    if output_path is None:
-        output_path = config.paths().output_path
+def save_chunks(nodes: List[BaseNode], output_path: Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as f:
         for node in nodes:
@@ -228,7 +224,6 @@ if __name__ == "__main__":
     import sys
     import textwrap
 
-    pc = config.paths()
     cc = config.chunking()
 
     parser = argparse.ArgumentParser(
@@ -236,21 +231,21 @@ if __name__ == "__main__":
         description="AST-чанкинг кода + LLM-enrichment (summary, keywords) через IngestionPipeline.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent("""\
-            Примеры (пути --path — относительно текущего каталога):
+            Примеры (относительные пути — от текущего каталога):
               # только чанкинг (оффлайн, LLM-ключи не нужны) — для быстрого теста:
-              python ast_llamaindex.py --path ./src --no-enrich
+              python ast_llamaindex.py --path ./src --output /tmp/chunks.jsonl --no-enrich
 
               # полный прогон с enrichment (ключи в корневом .env, см. config.py):
-              python ast_llamaindex.py --path ./src
+              python ast_llamaindex.py --path ./src --output /tmp/chunks.jsonl
 
               # лимит файлов для дев-прогона:
-              python ast_llamaindex.py --path ./src --no-enrich --max-files 5
+              python ast_llamaindex.py --path ./src --output /tmp/chunks.jsonl --no-enrich --max-files 5
         """),
     )
-    parser.add_argument("--path", type=Path, default=pc.code_path,
-                        help=f"папка с исходниками (по умолчанию: {pc.code_path})")
-    parser.add_argument("--output", type=Path, default=pc.output_path,
-                        help=f"выходной JSONL (по умолчанию: {pc.output_path})")
+    parser.add_argument("--path", type=Path, required=True,
+                        help="папка с исходниками (обязательный)")
+    parser.add_argument("--output", type=Path, required=True,
+                        help="выходной JSONL (обязательный)")
     parser.add_argument("--no-enrich", action="store_true",
                         help="только AST-чанкинг, без LLM (оффлайн)")
     parser.add_argument("--max-files", type=int, default=cc.max_files,
