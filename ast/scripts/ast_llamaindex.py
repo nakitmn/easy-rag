@@ -238,13 +238,13 @@ if __name__ == "__main__":
         epilog=textwrap.dedent("""\
             Примеры (пути --path — относительно текущего каталога):
               # только чанкинг (оффлайн, LLM-ключи не нужны) — для быстрого теста:
-              python ast_llamaindex.py --path ../launcher/src/Launcher/Assets/Scripts/Chat --no-enrich
+              python ast_llamaindex.py --path ./src --no-enrich
 
               # полный прогон с enrichment (ключи в корневом .env, см. config.py):
-              python ast_llamaindex.py --path ../launcher/src/Launcher/Assets/Scripts/Chat
+              python ast_llamaindex.py --path ./src
 
               # лимит файлов для дев-прогона:
-              python ast_llamaindex.py --path ../launcher/src/Launcher/Assets/Scripts/Chat --no-enrich --max-files 5
+              python ast_llamaindex.py --path ./src --no-enrich --max-files 5
         """),
     )
     parser.add_argument("--path", type=Path, default=pc.code_path,

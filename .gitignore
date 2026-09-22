@@ -2,6 +2,9 @@
 .claude/settings.local.json
 .claude/agent-memory-local/
 
+# Project-specific dev memory (stays local)
+.memory/
+
 # Mac OS
 .DS_Store
 
@@ -17,9 +20,6 @@ ast_chunks_offline.jsonl
 
 # Vector index (generated, ~large)
 ast/data/vector_index/
-
-# Repomix output (generated)
-repomix/output.xml
 
 # Environment files (never commit secrets)
 .env

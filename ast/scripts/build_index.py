@@ -441,16 +441,16 @@ if __name__ == "__main__":
         epilog=textwrap.dedent("""\
             Примеры (пути --path — относительно текущего каталога):
               # оффлайн (без LLM — быстро, для смоука):
-              python build_index.py --path ../launcher/src/Launcher/Assets/Scripts/Chat --no-enrich
+              python build_index.py --path ./src --no-enrich
 
               # полный прогон с enrichment (ключи в корневом .env, см. config.py):
-              python build_index.py --path ../launcher/src/Launcher/Assets/Scripts/Chat
+              python build_index.py --path ./src
 
               # пересоздать индекс с нуля:
-              python build_index.py --path ../launcher/src/Launcher/Assets/Scripts/Chat --reset
+              python build_index.py --path ./src --reset
 
               # удалить из индекса документы, которых нет в прогоне:
-              python build_index.py --path ../launcher/src/Launcher/Assets/Scripts/Chat --prune
+              python build_index.py --path ./src --prune
         """),
     )
     parser.add_argument("--path", type=Path, default=pc.code_path,

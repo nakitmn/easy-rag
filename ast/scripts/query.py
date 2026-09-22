@@ -7,7 +7,7 @@ Retrieval — SimpleVectorStore через ``load_index_from_storage``; эмбе
 не требуются).
 
 Примеры:
-    python query.py "Где регистрируются сервисы чата?"
+    python query.py "Где настраивается внедрение зависимостей?"
     python query.py "как отправить сообщение" --no-llm --top-k 5
 """
 
@@ -26,7 +26,7 @@ from build_index import build_embed_model
 from llm_provider import build_query_llm
 
 ANSWER_SYSTEM_PROMPT = (
-    "Ты — ассистент по кодовой базе C# лаунчера (Unity, VContainer).\n"
+    "Ты — ассистент по кодовой базе C#.\n"
     "Отвечай на вопрос, опираясь ТОЛЬКО на приведённые фрагменты кода.\n"
     "Правила:\n"
     "1. Отвечай по-русски, кратко и по делу.\n"

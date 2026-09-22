@@ -1,10 +1,10 @@
-Работаем над RAG-системой проекта launcher (VR Club Launcher, C#/Unity).
-Это ЛОКАЛЬНЫЙ Python dev-тул (llama-index 0.14.x) для семантического поиска по
-коду лаунчера. НЕ часть Unity-приложения — отдельный tooling в ОТДЕЛЬНОМ
-репозитории (github.com/nakitmn/RAG, этот каталог), `.venv` в корне репо.
+Работаем над RAG — универсальным ЛОКАЛЬНЫМ Python dev-тулом (llama-index 0.14.x)
+для семантического поиска по кодовым базам на C#. НЕ часть индексируемого
+приложения — отдельный tooling в ОТДЕЛЬНОМ репозитории (github.com/nakitmn/RAG,
+этот каталог), `.venv` в корне репо.
 
-RAG-система НЕ описана в основной wiki лаунчера (проверено) — её нет в index.md.
-Первый источник знаний про неё — `.memory/` (см. ниже), а не вики и не код.
+Первый источник знаний про систему — `.memory/` (локальный каталог, вне git;
+см. ниже), а не код.
 
 ПЕРВЫЙ ШАГ — прочитай память системы, прежде чем что-либо делать:
   .memory/README.md        — индекс + текущее состояние (начни отсюда)
@@ -13,12 +13,13 @@ RAG-система НЕ описана в основной wiki лаунчера
   .memory/roadmap.md       — что готово, история решений, открытые шаги
 
 КОНТЕКСТ (коротко):
-- Структура: ast/ (домен AST-чанкинга), repomix/ (домен repomix).
+- Структура: ast/ (домен AST-чанкинга).
 - Главный скрипт: ast/scripts/ast_llamaindex.py — IngestionPipeline с
   transformations [CodeSplitter, SummaryExtractor, KeywordExtractor]. Enrichment
   идёт ВНУТРИ pipeline.run(), не отдельным шагом.
 - LLM по доменам (enrichment/query): ast/scripts/llm_provider.py
-  (OpenAILike-клиент), оба — z.ai glm-5.3-flash через coding-эндпоинт.
+  (OpenAILike-клиент); модели/эндпоинты задаются в .env (сейчас z.ai
+  glm-5.3-flash через coding-эндпоинт).
 - КОНФИГУРАЦИЯ: единственная точка — корневой .env репо (+ коммитимый
   шаблон .env.example). Читает/валидирует env ТОЛЬКО ast/scripts/config.py;
   дефолтов tunable-параметров в коде нет. Самопроверка:
@@ -30,9 +31,9 @@ RAG-система НЕ описана в основной wiki лаунчера
   --no-enrich = оффлайн-чанкинг без LLM (быстро, без ключа).
 
 СОГЛАШЕНИЯ:
-- Источник кода — репозиторий launcher (/Users/admin/Documents/Sotbifay/Projects/launcher),
-  путь src/Launcher/Assets/Scripts (задаётся RAG_CODE_PATH в .env). Python-тул
-  индексирует код лаунчера, не себя.
+- Источник кода — любой C#-проект, путь задаётся RAG_CODE_PATH в .env
+  (относительные пути — от корня репо). Python-тул индексирует целевой
+  проект, не себя.
 - Зависимости: requirements.txt (прямые импорты, pinned).
 - Метаданные чанка: file_path/file_name (от SimpleDirectoryReader/CodeSplitter),
   section_summary (SummaryExtractor), excerpt_keywords (KeywordExtractor).
