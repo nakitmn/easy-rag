@@ -12,8 +12,11 @@ hash документа: смена режима (enrich↔plain) или embeddi
 
 Каталог индекса (``--index-dir``) принадлежит клиенту — дефолтов нет. Индекс:
 docstore.json, index_store.json, default__vector_store.json (+ стабы) и
-``rag_meta.json`` с корнем корпуса и профилем. Root-guard: повторный прогон
-с другим ``--path`` — ошибка без ``--switch-root``; смена профиля (enrich↔plain
+``rag_meta.json`` с корнем корпуса (schema v2 — путь относительно каталога
+индекса, поэтому rag_meta.json одинаков на любой машине и индекс можно
+коммитить в git; legacy v1 с абсолютным путём читается и мигрирует при
+первом прогоне) и профилем. Root-guard: повторный прогон с другим ``--path``
+— ошибка без ``--switch-root``; смена профиля (enrich↔plain
 или embedding-модель) — предупреждение с подсказкой ``--reset``.
 
 Дефолт docstore_strategy=UPSERTS: повторные прогоны только обновляют, ничего
@@ -37,6 +40,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import sys
 import time
@@ -90,15 +94,33 @@ def _read_meta(index_dir: Path) -> Optional[dict]:
 
 
 def _write_meta(index_dir: Path, corpus_root: Path, profile: str) -> None:
+    try:
+        # Относительный от каталога индекса корень делает rag_meta.json
+        # одинаковым на любой машине — индекс можно коммитить в git.
+        saved_root: str = os.path.relpath(
+            corpus_root.resolve(), start=index_dir.resolve()
+        )
+    except ValueError:
+        # Windows: корпус и индекс на разных дисках — относительный путь
+        # невозможен, храним абсолютный.
+        saved_root = str(corpus_root.resolve())
     meta = {
-        "schema_version": 1,
-        "corpus_root": str(corpus_root),
+        "schema_version": 2,
+        "corpus_root": saved_root,
         "profile": profile,
     }
     index_dir.mkdir(parents=True, exist_ok=True)
     with (index_dir / "rag_meta.json").open("w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
         f.write("\n")
+
+
+def _resolve_saved_root(index_dir: Path, raw: str) -> Path:
+    """Legacy v1: абсолютный corpus_root — как записан; schema v2: резолв от каталога индекса."""
+    saved = Path(raw)
+    if saved.is_absolute():
+        return saved.resolve()
+    return (index_dir.resolve() / saved).resolve()
 
 
 # --- Embedding ----------------------------------------------------------------
@@ -270,7 +292,7 @@ def build_index(
     persist_dir.mkdir(parents=True, exist_ok=True)
 
     if meta:
-        saved_root = Path(meta.get("corpus_root", "")).resolve()
+        saved_root = _resolve_saved_root(persist_dir, meta.get("corpus_root", ""))
         current_root = Path(code_path).resolve()
         if saved_root != current_root:
             if not switch_root:

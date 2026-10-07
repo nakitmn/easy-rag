@@ -43,7 +43,8 @@ requirements.txt
 
 Vector indexes are **owned by the client project**: you pass `--index-dir` on every
 call, and the RAG repository hosts no indexes itself. Each index directory carries a
-`rag_meta.json` with its corpus root and profile (`enrich|plain:<embed_model>`).
+`rag_meta.json` with its corpus root (stored relative to the index directory, so the
+file is identical on every machine) and profile (`enrich|plain:<embed_model>`).
 
 ## Installation
 
@@ -135,6 +136,24 @@ Notes:
 - The first run downloads BAAI/bge-m3 (~2.3 GB) from Hugging Face.
 - Rough speed with enrichment: a corpus of ~1,750 files takes about 2–3 hours
   (measured on an Apple M1 Max).
+
+### Sharing an index via git
+
+The index is portable and can be committed to the client project's repository:
+
+- All stored paths are relative — chunk `file_path`, stable doc ids, and the corpus
+  root in `rag_meta.json` — so the index is identical on every machine.
+- Teammates clone the project and rerun the same build command: the root guard
+  passes without `--switch-root`, and unchanged files are skipped via dedup.
+- Indexes built by older versions (`schema_version: 1` with an absolute corpus root)
+  migrate automatically: the first successful rebuild rewrites `rag_meta.json` into
+  the relative format. To upgrade an existing index, run one incremental build —
+  unchanged files are skipped, so it takes minutes:
+
+```bash
+.venv/bin/python ast/scripts/build_index.py \
+  --path /path/to/your/csharp/project --index-dir /path/to/your/project/.rag
+```
 
 ## Querying
 
